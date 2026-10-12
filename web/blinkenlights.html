@@ -521,12 +521,21 @@ const running = () => !!S.state && S.state.state === "running";
 function pad(v, r, w) { return v.toString(r).toUpperCase().padStart(w, "0"); }
 
 /* ---------- tabs ---------- */
+let termWasAtBottom = true;                              // was the terminal following the output when we left it?
 function showView(v) {
   if (!$("v-" + v)) v = "panel";
+  if ($("v-terminal").classList.contains("on") && typeof term !== "undefined" && term) termWasAtBottom = term.nearBottom();
   for (const b of document.querySelectorAll("#tabs button")) b.setAttribute("aria-selected", b.dataset.view === v);
   for (const s of document.querySelectorAll(".view")) s.classList.toggle("on", s.id === "v-" + v);
   if (location.hash !== "#" + v) history.replaceState(null, "", location.search + "#" + v);
-  if (v === "terminal" && typeof term !== "undefined" && term) setTimeout(() => $("term").focus(), 0);
+  if (v === "terminal" && typeof term !== "undefined" && term) {
+    // While hidden the pane has no size, so output arriving meanwhile could not scroll it: catch up now.
+    requestAnimationFrame(() => {
+      const el = $("term");
+      if (termWasAtBottom) { term.stick = true; term.render(); el.scrollTop = el.scrollHeight; }
+      el.focus({ preventScroll: true });
+    });
+  }
 }
 $("tabs").onclick = e => { const b = e.target.closest("button"); if (b) showView(b.dataset.view); };
 addEventListener("hashchange", () => showView(location.hash.slice(1)));
