@@ -234,6 +234,9 @@
 #include "sim_serial.h"
 #include "sim_video.h"
 #include "sim_sock.h"
+#ifdef USE_WEBSERVER
+#include "sim_web.h"
+#endif
 #include "sim_frontpanel.h"
 #include "sim_printf_fmts.h"
 #include <signal.h>
@@ -2868,6 +2871,9 @@ sim_register_internal_device (&sim_expect_dev);
 sim_register_internal_device (&sim_step_dev);
 sim_register_internal_device (&sim_flush_dev);
 sim_register_internal_device (&sim_runlimit_dev);
+#ifdef USE_WEBSERVER
+sim_web_init ();
+#endif
 
 if ((stat = sim_ttinit ()) != SCPE_OK) {
     fprintf (stderr, "Fatal terminal initialization error\n%s\n",
@@ -3007,6 +3013,9 @@ char cbuf[4*CBUFSIZE], gbuf[CBUFSIZE];
 CONST char *cptr = NULL;
 t_stat stat_nomessage;
 CTAB *cmdp = NULL;
+#ifdef USE_WEBSERVER
+int web_wait;
+#endif
 
 stat = SCPE_BARE_STATUS(stat);                          /* remove possible flag */
 while (stat != SCPE_EXIT) {                             /* in case exit */
@@ -3027,6 +3036,15 @@ while (stat != SCPE_EXIT) {                             /* in case exit */
         sim_cptr_is_action[sim_do_depth] = TRUE;
         }
     else {
+#ifdef USE_WEBSERVER
+        web_wait = (sim_vm_read == NULL) ?              /* keep the web interface alive at the prompt */
+                        sim_web_prompt_wait (sim_prompt, cbuf, sizeof(cbuf)) : 0;
+        if (web_wait == 1)                              /* command injected from the web */
+            cptr = cbuf;
+        else if (web_wait == 2)                         /* console input is ready (prompt already shown) */
+            cptr = read_line_p (NULL, cbuf, sizeof(cbuf), stdin);
+        else
+#endif
         if (sim_vm_read != NULL) {                      /* sim routine? */
             printf ("%s", sim_prompt);                  /* prompt */
             cptr = (*sim_vm_read) (cbuf, sizeof(cbuf), stdin);
@@ -3048,6 +3066,9 @@ while (stat != SCPE_EXIT) {                             /* in case exit */
         continue;
     sim_cmd_echoed = TRUE;
     sim_sub_args (cbuf, sizeof(cbuf), argv);
+#ifdef USE_WEBSERVER
+    sim_web_note_command (cptr);                        /* remember BOOT devices for the web Restart */
+#endif
     if (sim_log)                                        /* log cmd */
         fprintf (sim_log, "%s%s\n", sim_prompt, cptr);
     if (sim_deb && (sim_deb != sim_log) && (sim_deb != stdout))

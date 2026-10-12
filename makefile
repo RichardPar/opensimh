@@ -36,6 +36,11 @@
 # simulators without networking support, invoking GNU make with
 # NONETWORK=1 on the command line will do the trick.
 #
+# To build with the embedded web server, WebSocket and REST API (Blinkenlights
+# front panel), invoke GNU make with WEBSERVER=1 on the command line, e.g.
+#   make WEBSERVER=1 pdp11 vax
+# and use "ATTACH WEB <port>" in the simulator.  See sim_web.c for details.
+#
 # By default, video support is enabled if the SDL2 development
 # headers and libraries are available.  To force a build without video
 # support, invoke GNU make with NOVIDEO=1 on the command line.
@@ -1444,8 +1449,13 @@ ifneq ($(DONT_USE_READER_THREAD),)
   NETWORK_OPT += -DDONT_USE_READER_THREAD
 endif
 
+ifneq ($(WEBSERVER),)
+  WEB_OPT = -DUSE_WEBSERVER
+  $(info *** Web interface (HTTP/WebSocket/REST) enabled: ATTACH WEB <port> at run time.)
+endif
+
 CC_OUTSPEC = -o $@
-CC := ${GCC} ${CC_STD} -U__STRICT_ANSI__ ${CFLAGS_G} ${CFLAGS_O} ${CFLAGS_GIT} ${CFLAGS_I} -DSIM_COMPILER="${COMPILER_NAME}" -DSIM_BUILD_TOOL=simh-makefile -I . ${OS_CCDEFS} ${ROMS_OPT}
+CC := ${GCC} ${CC_STD} -U__STRICT_ANSI__ ${CFLAGS_G} ${CFLAGS_O} ${CFLAGS_GIT} ${CFLAGS_I} -DSIM_COMPILER="${COMPILER_NAME}" -DSIM_BUILD_TOOL=simh-makefile -I . ${OS_CCDEFS} ${ROMS_OPT} ${WEB_OPT}
 ifneq (,${SIM_VERSION_MODE})
   CC += -DSIM_VERSION_MODE="${SIM_VERSION_MODE}"
 endif
@@ -1460,7 +1470,7 @@ SIM = ${SIMHD}/scp.c ${SIMHD}/sim_console.c ${SIMHD}/sim_fio.c \
 	${SIMHD}/sim_timer.c ${SIMHD}/sim_sock.c ${SIMHD}/sim_tmxr.c \
 	${SIMHD}/sim_ether.c ${SIMHD}/sim_tape.c ${SIMHD}/sim_disk.c \
 	${SIMHD}/sim_serial.c ${SIMHD}/sim_video.c ${SIMHD}/sim_imd.c \
-	${SIMHD}/sim_card.c
+	${SIMHD}/sim_card.c ${SIMHD}/sim_web.c
 
 DISPLAYD = ${SIMHD}/display
 

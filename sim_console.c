@@ -147,6 +147,9 @@
 #include "sim_tmxr.h"
 #include "sim_serial.h"
 #include "sim_timer.h"
+#ifdef USE_WEBSERVER
+#include "sim_web.h"
+#endif
 #include <ctype.h>
 #include <math.h>
 
@@ -2898,6 +2901,19 @@ t_stat sim_poll_kbd (void)
 t_stat c;
 
 sim_last_poll_kbd_time = sim_os_msec ();                    /* record when this poll happened */
+#ifdef USE_WEBSERVER
+{
+int wc = sim_web_console_in ();                             /* keystroke from the web terminal? */
+
+if (wc >= 0) {
+    if (wc == sim_int_char) {                               /* ^E (WRU) stops, as at a real console */
+        stop_cpu = TRUE;
+        return SCPE_OK;
+        }
+    return (wc & 0377) | SCPE_KFLAG;
+    }
+}
+#endif
 if (sim_send_poll_data (&sim_con_send, &c))                 /* injected input characters available? */
     return c;
 if (!sim_rem_master_mode) {
@@ -2943,6 +2959,9 @@ return SCPE_OK;
 t_stat sim_putchar (int32 c)
 {
 sim_exp_check (&sim_con_expect, c);
+#ifdef USE_WEBSERVER
+sim_web_console_out (c);                                /* copy to the web terminal */
+#endif
 if ((sim_con_tmxr.master == 0) &&                       /* not Telnet? */
     (sim_con_ldsc.serport == 0)) {                      /* and not serial port */
     ++sim_con_pos;                                      /* bookkeeping */
@@ -2968,6 +2987,9 @@ t_stat sim_putchar_s (int32 c)
 t_stat r;
 
 sim_exp_check (&sim_con_expect, c);
+#ifdef USE_WEBSERVER
+sim_web_console_out (c);                                /* copy to the web terminal */
+#endif
 if ((sim_con_tmxr.master == 0) &&                       /* not Telnet? */
     (sim_con_ldsc.serport == 0)) {                      /* and not serial port */
     ++sim_con_pos;                                      /* bookkeeping */
