@@ -1,4 +1,4 @@
-# My Open SIMH fork: VAX clock fixes
+# My Open SIMH fork: VAX clock fixes and a web interface
 
 This is my personal fork of Open SIMH ([github.com/RichardPar/opensimh](https://github.com/RichardPar/opensimh)).
 It is **not** the official Open SIMH repository. If you want that, go to
@@ -7,8 +7,12 @@ It is **not** the official Open SIMH repository. If you want that, go to
 I made this fork because of a thread about VAX clocks misbehaving under SIMH: clocks
 racing or dying after a reboot, and a VMS system that always came up about 19 hours
 out. I dug into the timekeeping code, tested against real VMS installs (VMS 5.5-2 on
-a MicroVAX II and VMS 6.2 on a VAXstation 4000-60) and fixed what I found. Everything
-else in the tree is plain Open SIMH.
+a MicroVAX II and VMS 6.2 on a VAXstation 4000-60) and fixed what I found.
+
+I've since also added an **optional web interface** to this fork (a front panel, guest
+console, media and network view, all in the browser). It is a build-time option and is
+left out unless you ask for it: see [section 4](#4-an-optional-web-interface-sim_webc-web) and
+[web/README.md](web/README.md). Everything else in the tree is plain Open SIMH.
 
 ## What I changed
 
@@ -116,6 +120,41 @@ They do **not** apply to the `vax` (MicroVAX 3900), `microvax1`, `vax730`, `vax7
 `vax780` or `vax8600`. Those have no MC146818; they keep time in the TODR, a 32-bit
 time-of-year counter register in the CPU (on the 3900's KA655 it lives in the CVAX
 SSC support chip), and SIMH's TODR code already kept what VMS wrote.
+
+### 4. An optional web interface (`sim_web.c`, `web/`)
+
+This one is a new feature, not a fix, and it is **off unless you build it in**:
+
+    make WEBSERVER=1 pdp11 vax          (also pdp15, pdp9, pdp7, pdp4 ...)
+
+Then, at the `sim>` prompt (or in your `.ini` file):
+
+    sim> ATTACH WEB 8080                (listens on 127.0.0.1 only)
+    sim> SET WEB TOKEN=secret           (optional)
+
+and open <http://127.0.0.1:8080/>. It is a single-threaded server inside the simulator, with a
+REST API and a WebSocket that pushes events to the page, so it keeps working whether the machine
+is stopped at `sim>`, running, or paused. In the browser you get:
+
+- a **front panel**: address lamps (the PC), data lamps (the word at the PC) and status lamps
+  (PSW/PSL, or the accumulator on the 18-bit PDPs), with Pause / Continue / Step / Halt / Reset / Run
+  and a **Restart** button with a drive selector, plus the registers;
+- the last 10/20/50 **instructions** (the CPU's own `SHOW CPU HISTORY`), with their operand data;
+- a **terminal** for the guest's console, so you can log in to RSX or VMS from the browser;
+- **devices and media**: load and unload disks and tapes (even while the guest runs), choose
+  the boot drive, and see **media I/O** activity (read and write counts with blinking lamps);
+- **network**: MAC address, host adapter and live counters for the Ethernet cards (XQ/XU);
+- memory examine / deposit, and a box to send any SCP command.
+
+**Applies to:** I've run it on the PDP-11 (11/70 and 11/73), the MicroVAX 3900 and the PDP-4/7/9/15.
+It is not part of upstream Open SIMH. The core changes are small and are all inside
+`#ifdef USE_WEBSERVER`: a few lines in `scp.c`, `sim_console.c`, `sim_disk.c` and `sim_tape.c`,
+a build switch in the `makefile`, and the new files `sim_web.c`, `sim_web.h` and `sim_web_page.h`
+(generated from `web/blinkenlights.html`). Without `WEBSERVER=1` none of it is compiled.
+
+It has no TLS and `/api/command` can run any SCP command, so keep it on loopback (the default) or
+behind an SSH tunnel or reverse proxy, and set a token if you open it up. The details (endpoints,
+events, security, limits) are in [web/README.md](web/README.md).
 
 ## If your VMS clock is already out
 

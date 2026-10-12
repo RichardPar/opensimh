@@ -144,6 +144,10 @@ struct tape_context {
     DEVICE              *dptr;              /* Device for unit (access to debug flags) */
     uint32              dbit;               /* debugging bit for trace */
     uint32              auto_format;        /* Format determined dynamically */
+#ifdef USE_WEBSERVER
+    uint32              read_count;         /* record reads (for the web media I/O display) */
+    uint32              write_count;        /* record writes and tape marks */
+#endif
 #if defined SIM_ASYNCH_IO
     t_bool              asynch_io;          /* Asynchronous Interrupt scheduling enabled */
     int                 asynch_io_latency;  /* instructions to delay pending interrupt */
@@ -1910,6 +1914,16 @@ return status;
    data record error    updated
 */
 
+#ifdef USE_WEBSERVER
+void sim_tape_io_counts (UNIT *uptr, uint32 *reads, uint32 *writes)
+{
+struct tape_context *ctx = (struct tape_context *)uptr->tape_ctx;
+
+*reads = (ctx != NULL) ? ctx->read_count : 0;
+*writes = (ctx != NULL) ? ctx->write_count : 0;
+}
+#endif
+
 t_stat sim_tape_rdrecf (UNIT *uptr, uint8 *buf, t_mtrlnt *bc, t_mtrlnt max)
 {
 struct tape_context *ctx = (struct tape_context *)uptr->tape_ctx;
@@ -1921,6 +1935,9 @@ t_stat st;
 *bc = 0;
 if (ctx == NULL)                                        /* if not properly attached? */
     return sim_messagef (SCPE_IERR, "Bad Attach\n");    /*   that's a problem */
+#ifdef USE_WEBSERVER
+ctx->read_count++;
+#endif
 sim_debug_unit (ctx->dbit, uptr, "sim_tape_rdrecf(unit=%d, buf=%p, max=%d)\n", (int)(uptr-ctx->dptr->units), buf, max);
 
 opos = uptr->pos;                                       /* old position */
@@ -1999,6 +2016,9 @@ t_stat st;
 *bc = 0;
 if (ctx == NULL)                                        /* if not properly attached? */
     return sim_messagef (SCPE_IERR, "Bad Attach\n");    /*   that's a problem */
+#ifdef USE_WEBSERVER
+ctx->read_count++;
+#endif
 sim_debug_unit (ctx->dbit, uptr, "sim_tape_rdrecr(unit=%d, buf=%p, max=%d)\n", (int)(uptr-ctx->dptr->units), buf, max);
 
 st = sim_tape_rdrlrev (uptr, &tbc);                     /* read rec lnt */
@@ -2063,6 +2083,9 @@ t_stat status = MTSE_OK;
 
 if (ctx == NULL)                                        /* if not properly attached? */
     return sim_messagef (SCPE_IERR, "Bad Attach\n");    /*   that's a problem */
+#ifdef USE_WEBSERVER
+ctx->write_count++;
+#endif
 sim_debug_unit (ctx->dbit, uptr, "sim_tape_wrrecf(unit=%d, buf=%p, bc=%d)\n", (int)(uptr-ctx->dptr->units), buf, bc);
 
 sim_tape_data_trace(uptr, buf, bc, "Record Write", (uptr->dctrl | ctx->dptr->dctrl) & MTSE_DBG_DAT, MTSE_DBG_STR);
@@ -2201,6 +2224,9 @@ struct tape_context *ctx = (struct tape_context *)uptr->tape_ctx;
 
 if (ctx == NULL)                                        /* if not properly attached? */
     return sim_messagef (SCPE_IERR, "Bad Attach\n");    /*   that's a problem */
+#ifdef USE_WEBSERVER
+ctx->write_count++;
+#endif
 sim_debug_unit (ctx->dbit, uptr, "sim_tape_wrtmk(unit=%d)\n", (int)(uptr-ctx->dptr->units));
 if (MT_GET_FMT (uptr) == MTUF_F_P7B) {                  /* P7B? */
     uint8 buf = P7B_EOF;                                /* eof mark */

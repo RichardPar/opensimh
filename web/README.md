@@ -1,5 +1,8 @@
 # Web interface (optional, build-time)
 
+> This is a feature of **my fork** of Open SIMH ([github.com/RichardPar/opensimh](https://github.com/RichardPar/opensimh)),
+> not of the official Open SIMH. See the [main README](../README.md) for the fork overview.
+
 An embedded HTTP server, WebSocket event feed and REST API with a web
 console: front-panel lamps and controls, device/media management (load and
 unload disks and tapes), live Ethernet statistics, memory and an SCP command
@@ -47,6 +50,7 @@ runs over `/ws`. The server **pushes**
 | `state` | ~10/s: run state, PC, status word, registers, lights, last status |
 | `devices` | on connect and whenever a unit is attached/detached/enabled |
 | `network` | on connect and whenever an Ethernet adapter's counters or link change |
+| `mediaio` | read/write operation counts of every loaded disk and tape unit, when they change |
 | `history` | the CPU's last N instructions, while the **Instructions** switch on the Panel is on |
 | `console` | guest console output as it is written (plus ~32 KB of history on connect) |
 

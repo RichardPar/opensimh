@@ -47,6 +47,9 @@
    you can log in to the guest from the browser while it runs.  The WRU
    character (^E) typed there stops the simulation, as at a real console.
 
+   "mediaio" events carry the read/write operation counts of every loaded
+   disk and tape unit (pushed when they change).
+
    {"cmd":"history","count":20,"enable":true} switches the CPU's instruction
    history on (SET CPU HISTORY) and subscribes to "history" events with the
    last 20 records (the CPU's own SHOW CPU HISTORY output).
@@ -121,6 +124,8 @@
 #include "sim_web_page.h"
 
 extern void put_rval (REG *rptr, uint32 idx, t_value val);
+extern void sim_disk_io_counts (UNIT *uptr, uint32 *reads, uint32 *writes);   /* sim_disk.c (USE_WEBSERVER) */
+extern void sim_tape_io_counts (UNIT *uptr, uint32 *reads, uint32 *writes);   /* sim_tape.c (USE_WEBSERVER) */
 
 #define WEB_MAX_CLIENTS     8
 #define WEB_RX_MAX          (64 * 1024)         /* request header + body limit */
@@ -347,6 +352,7 @@ typedef struct {
     uint32      dev_ver;                                /* last devices/network event versions sent */
     uint32      net_ver;
     t_bool      con_init;                               /* console history sent */
+    uint32      io_ver;                                 /* media I/O event version sent */
     uint32      hist_n;                                 /* instruction-history subscription: records wanted */
     uint32      hist_ver;
     } WEB_CLIENT;
@@ -369,6 +375,10 @@ static uint32 web_serial = 0;
 static char *web_last_hist = NULL;
 static size_t web_last_hist_len = 0;
 static uint32 web_hist_ver = 0, web_hist_count = 0, web_last_hist_time = 0;
+static char *web_last_io = NULL;
+static size_t web_last_io_len = 0;
+static uint32 web_io_ver = 0, web_last_io_time = 0;
+#define WEB_IO_MSEC         250                 /* media I/O counter refresh interval */
 static char web_last_boot[32] = "";                   /* device of the last BOOT, for Restart */
 static t_bool web_restart_pending = FALSE;              /* halting, then BOOT */
 static t_bool web_stdin_eof = FALSE;                    /* stdin closed: keep serving the web */
@@ -389,6 +399,7 @@ static void web_broadcast_state (t_bool force);
 static void web_broadcast_events (void);
 static void web_broadcast_console (void);
 static void web_broadcast_history (void);
+static void web_broadcast_mediaio (void);
 static t_stat web_history_set (const char *arg);
 static size_t web_con_queue (const unsigned char *d, size_t n);
 static void web_finish_reply (t_bool started);
@@ -1988,8 +1999,10 @@ else if (strcmp (cmd, "history") == 0) {                    /* subscribe / enabl
     web_hist_ver++;                                         /* force a fresh snapshot for everyone */
     web_last_hist_time = 0;
     }
-else if (strcmp (cmd, "devices") == 0)
-    c->dev_ver = 0;                                         /* resend devices and network */
+else if (strcmp (cmd, "devices") == 0) {
+    c->dev_ver = 0;
+    c->io_ver = 0;
+    }                                         /* resend devices and network */
 else {
     code = web_command (c, cmd, msg, &err);
     if (code == 202)                                        /* result arrives when the command ends */
@@ -2397,12 +2410,88 @@ if ((*cache == NULL) || (*cache_len != fresh->len) || (memcmp (*cache, fresh->p,
     }
 }
 
+/* Media I/O activity: per loaded disk/tape unit, the number of read and write
+   operations the simulator has done on it (the disk and tape layers count
+   them; see sim_disk.c / sim_tape.c).  The page turns increases into blinking
+   R/W lamps, so this is only pushed when something changed. */
+
+static void json_mediaio (SB *sb)
+{
+DEVICE *dptr;
+uint32 i, j;
+t_bool first = TRUE;
+
+sb_puts (sb, "{\"type\":\"mediaio\",\"units\":[");
+for (i = 0; (dptr = sim_devices[i]) != NULL; i++) {
+    uint32 kind = DEV_TYPE (dptr);
+
+    if (((kind != DEV_DISK) && (kind != DEV_TAPE)) || (dptr->flags & DEV_DIS))
+        continue;
+    for (j = 0; j < dptr->numunits; j++) {
+        UNIT *uptr = dptr->units + j;
+        uint32 r = 0, w = 0;
+
+        if (!(uptr->flags & UNIT_ATT) || (uptr->flags & UNIT_DIS))
+            continue;
+        if (kind == DEV_DISK)
+            sim_disk_io_counts (uptr, &r, &w);
+        else
+            sim_tape_io_counts (uptr, &r, &w);
+        if (!first)
+            sb_puts (sb, ",");
+        first = FALSE;
+        sb_puts (sb, "{\"unit\":");
+        sb_json_str (sb, sim_uname (uptr));
+        sb_printf (sb, ",\"kind\":\"%s\",\"readonly\":%s,\"reads\":%u,\"writes\":%u", (kind == DEV_DISK) ? "disk" : "tape",
+                   (uptr->flags & UNIT_RO) ? "true" : "false", (unsigned)r, (unsigned)w);
+        if (kind == DEV_TAPE)
+            sb_printf (sb, ",\"pos\":%.0f", (double)uptr->pos);
+        if (uptr->filename) {
+            sb_puts (sb, ",\"file\":");
+            sb_json_str (sb, uptr->filename);
+            }
+        sb_puts (sb, "}");
+        }
+    }
+sb_puts (sb, "]}");
+}
+
+static void web_broadcast_mediaio (void)
+{
+uint32 now = sim_os_msec (), i;
+t_bool wanted = FALSE;
+
+for (i = 0; i < WEB_MAX_CLIENTS; i++)
+    if ((web_clients[i].sock != INVALID_SOCKET) && web_clients[i].ws)
+        wanted = TRUE;
+if (!wanted)
+    return;
+if ((web_last_io == NULL) || ((now - web_last_io_time) >= WEB_IO_MSEC)) {
+    SB sb = { NULL, 0, 0, FALSE };
+
+    web_last_io_time = now;
+    json_mediaio (&sb);
+    web_update_cache (&sb, &web_last_io, &web_last_io_len, &web_io_ver);
+    free (sb.p);
+    }
+for (i = 0; i < WEB_MAX_CLIENTS; i++) {
+    WEB_CLIENT *c = &web_clients[i];
+
+    if ((c->sock == INVALID_SOCKET) || !c->ws || c->close_after || (c->io_ver == web_io_ver) ||
+        (c->txlen - c->txoff >= 64 * 1024) || (web_last_io == NULL))
+        continue;
+    ws_send_text (c, web_last_io, web_last_io_len);
+    c->io_ver = web_io_ver;
+    }
+}
+
 static void web_broadcast_events (void)
 {
 uint32 now = sim_os_msec (), i;
 
 web_broadcast_console ();
 web_broadcast_history ();
+web_broadcast_mediaio ();
 t_bool wanted = FALSE;
 
 for (i = 0; i < WEB_MAX_CLIENTS; i++)
@@ -2701,6 +2790,8 @@ web_con_pend_len = 0;
 web_con_in_head = web_con_in_tail = 0;
 free (web_last_hist);
 web_last_hist = NULL;
+free (web_last_io);
+web_last_io = NULL;
 free (web_last_devices);
 free (web_last_network);
 web_last_devices = web_last_network = NULL;

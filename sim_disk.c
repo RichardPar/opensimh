@@ -639,6 +639,17 @@ return SCPE_OK;
 #endif
 }
 
+#ifdef USE_WEBSERVER
+/* Read/write operation counts for the web interface's media I/O display */
+void sim_disk_io_counts (UNIT *uptr, uint32 *reads, uint32 *writes)
+{
+struct disk_context *ctx = (struct disk_context *)uptr->disk_ctx;
+
+*reads = (ctx != NULL) ? ctx->read_count : 0;
+*writes = (ctx != NULL) ? ctx->write_count : 0;
+}
+#endif
+
 /* Read Sectors */
 
 static t_stat _sim_disk_rdsect (UNIT *uptr, t_lba lba, uint8 *buf, t_seccnt *sectsread, t_seccnt sects)

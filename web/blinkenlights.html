@@ -273,6 +273,22 @@ main { padding: 14px 20px; }
 .splitb select option { background: #141a27; color: #e9eefb; }
 .btn.boot-on { color: var(--run); border-color: color-mix(in srgb, var(--run) 55%, var(--line)); }
 
+/* ---------- media I/O strip ---------- */
+.mio { display: flex; align-items: center; gap: 14px; padding: 7px 14px; }
+.mio h2 { margin: 0; flex: none; }
+.mio .chips { display: flex; flex-wrap: wrap; gap: 6px 8px; align-items: center; min-width: 0; }
+.mio .none { color: var(--faint); font-size: 12px; }
+.mchip { display: inline-flex; align-items: center; gap: 7px; background: var(--bg1); border: 1px solid var(--line); border-radius: 9px; padding: 3px 9px; font-size: 12px; min-width: 0; }
+.mchip b { font: 700 12px ui-monospace, Menlo, Consolas, monospace; }
+.mchip .mf { color: var(--dim); max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mchip .mc { font: 11.5px ui-monospace, Menlo, Consolas, monospace; color: var(--dim); }
+.mchip .mc i { font-style: normal; color: var(--text); }
+.mled { display: inline-flex; align-items: center; gap: 3px; font: 700 9px ui-monospace, Menlo, monospace; color: var(--faint); }
+.mled u { text-decoration: none; width: 8px; height: 8px; border-radius: 50%; background: var(--line); transition: background .08s, box-shadow .08s; }
+.mled.r.on u { background: var(--run); box-shadow: 0 0 7px var(--run); } .mled.w.on u { background: var(--pause); box-shadow: 0 0 7px var(--pause); }
+.mchip.ro .mf::after { content: " (ro)"; color: var(--pause); }
+.hist { line-height: 1.25; }
+
 /* ---------- dialog / toast ---------- */
 dialog { background: var(--card); color: var(--text); border: 1px solid var(--line); border-radius: 16px; padding: 0; width: min(620px, calc(100vw - 32px)); box-shadow: 0 30px 90px #000a; }
 dialog::backdrop { background: #0009; backdrop-filter: blur(3px); }
@@ -355,6 +371,10 @@ dialog::backdrop { background: #0009; backdrop-filter: blur(3px); }
         </div>
       </div>
       <div class="card regcard"><h2>Registers <span class="sp"></span><span class="last" id="last"></span></h2><div class="regs" id="regs"></div></div>
+    </div>
+    <div class="card mio" id="mio" style="margin-top:12px" aria-label="Media I/O">
+      <h2>Media I/O</h2>
+      <div class="chips" id="mio-chips"><span class="none">No media loaded — see Devices &amp; Media</span></div>
     </div>
     <div class="card" id="histcard" style="margin-top:12px">
       <h2>Instructions <span class="sp"></span>
@@ -475,6 +495,7 @@ const handlers = {
   media: m => renderMedia(m),
   console: m => termData(m),
   history: m => renderHistory(m),
+  mediaio: m => renderMediaIO(m),
   memory: m => renderMemory(m),
   result: m => onResult(m),
   error: m => { toast(m.error, "err"); log(m.error, "err"); if ($("dlg").open) $("dlg-err").textContent = m.error; },
@@ -1017,6 +1038,32 @@ function renderHistory(m) {
     for (const c of rec.slice(1)) { const cl = document.createElement("span"); cl.className = "cont"; cl.textContent = c; body.appendChild(cl); }
     row.append(num, body); box.appendChild(row);
   });
+}
+
+
+/* ---------- media I/O strip ---------- */
+const mio = {};   // unit -> { reads, writes, el nodes, timers }
+function flash(node, t) { node.classList.add("on"); clearTimeout(node._t); node._t = setTimeout(() => node.classList.remove("on"), t || 320); }
+function renderMediaIO(m) {
+  const box = $("mio-chips"), keys = m.units.map(u => u.unit).join(",");
+  if (box.dataset.keys !== keys) {                       // the set of loaded media changed: rebuild
+    box.dataset.keys = keys; box.textContent = "";
+    for (const k of Object.keys(mio)) delete mio[k];
+    if (!m.units.length) { box.innerHTML = '<span class="none">No media loaded — see Devices &amp; Media</span>'; return; }
+    for (const u of m.units) {
+      const c = document.createElement("span"); c.className = "mchip" + (u.readonly ? " ro" : "");
+      c.innerHTML = '<span class="mled r"><u></u>R</span><span class="mled w"><u></u>W</span><b></b><span class="mf"></span><span class="mc"></span>';
+      c.querySelector("b").textContent = u.unit; c.querySelector(".mf").textContent = baseName(u.file); c.title = u.file || "";
+      box.appendChild(c);
+      mio[u.unit] = { el: c, reads: u.reads, writes: u.writes, r: c.querySelector(".mled.r"), w: c.querySelector(".mled.w"), mc: c.querySelector(".mc") };
+    }
+  }
+  for (const u of m.units) {
+    const e = mio[u.unit]; if (!e) continue;
+    if (u.reads > e.reads) flash(e.r); if (u.writes > e.writes) flash(e.w);
+    e.reads = u.reads; e.writes = u.writes;
+    e.mc.innerHTML = "R <i>" + fmtNum(u.reads) + "</i> · W <i>" + fmtNum(u.writes) + "</i>" + (u.kind === "tape" && u.pos ? " · " + fmtBytes(u.pos) : "");
+  }
 }
 
 /* ---------- boot ---------- */
